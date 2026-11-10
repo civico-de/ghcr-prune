@@ -1,0 +1,78 @@
+name: ghcr-prune
+description: Delete unreferenced container image versions from GHCR without breaking multi-arch indexes or attestations.
+inputs:
+  keep-newest:
+    description: Number of newest tagged versions to keep per package (≥ 1).
+    required: true
+  min-age-days:
+    description: Versions updated within this many days are never deleted.
+    required: true
+  keep-tags:
+    description: Regular expressions, one per line; a version with a matching tag is kept.
+    default: ""
+  keep-refs:
+    description: Files, one per line, whose `<package>@sha256:<digest>` references are kept. Each must name at least one.
+    default: ""
+  packages:
+    description: Package names, one per line. Empty means every container package linked to `repo`.
+    default: ""
+  repo:
+    description: Prune the packages linked to this repository (owner/name).
+    default: ${{ github.repository }}
+  org:
+    description: Organisation that owns the packages.
+    default: ${{ github.repository_owner }}
+  apply:
+    description: "`true` deletes; anything else is a dry run."
+    default: "false"
+  max-delete:
+    description: Upper bound of deletions per run; the rest waits for the next run. Required with apply.
+    default: ""
+  token:
+    description: Token with packages read (dry run) or packages write (apply) on the packages.
+    default: ${{ github.token }}
+  artifact-name:
+    description: Name of the uploaded decision log; set one per invocation when a run calls the action more than once.
+    default: ghcr-prune
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 24
+    - name: Prune
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        IN_ORG: ${{ inputs.org }}
+        IN_REPO: ${{ inputs.repo }}
+        IN_PACKAGES: ${{ inputs.packages }}
+        IN_KEEP_NEWEST: ${{ inputs.keep-newest }}
+        IN_MIN_AGE: ${{ inputs.min-age-days }}
+        IN_KEEP_TAGS: ${{ inputs.keep-tags }}
+        IN_KEEP_REFS: ${{ inputs.keep-refs }}
+        IN_APPLY: ${{ inputs.apply }}
+        IN_MAX_DELETE: ${{ inputs.max-delete }}
+      run: |
+        set -euo pipefail
+        args=(--org "$IN_ORG" --keep-newest "$IN_KEEP_NEWEST" --min-age-days "$IN_MIN_AGE")
+        if [ -n "$IN_PACKAGES" ]; then
+          while IFS= read -r p; do [ -n "$p" ] && args+=(--package "$p"); done <<< "$IN_PACKAGES"
+        else
+          args+=(--repo "$IN_REPO")
+        fi
+        while IFS= read -r t; do [ -n "$t" ] && args+=(--keep-tag "$t"); done <<< "$IN_KEEP_TAGS"
+        while IFS= read -r f; do [ -n "$f" ] && args+=(--keep-refs "$f"); done <<< "$IN_KEEP_REFS"
+        if [ "$IN_APPLY" = "true" ]; then args+=(--apply --max-delete "$IN_MAX_DELETE"); fi
+        out="$RUNNER_TEMP/ghcr-prune.jsonl"
+        rc=0
+        node "$GITHUB_ACTION_PATH/ghcr-prune.ts" "${args[@]}" > "$out" 2> "$RUNNER_TEMP/ghcr-prune.txt" || rc=$?
+        cat "$RUNNER_TEMP/ghcr-prune.txt" >&2
+        { echo '```'; cat "$RUNNER_TEMP/ghcr-prune.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        exit "$rc"
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      if: always()
+      with:
+        name: ${{ inputs.artifact-name }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/ghcr-prune.jsonl
+        if-no-files-found: ignore
