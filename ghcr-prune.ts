@@ -1,6 +1,6 @@
 // Prune container package versions of a GitHub organisation in GHCR. Dry run unless --apply.
 //
-//   node ghcr-prune.ts --org <org> (--repo <owner/name> | --package <name>...)
+//   node ghcr-prune.ts --org <org> --package <name>...
 //     --keep-newest <n> --min-age-days <d> [--keep-tag <regex>]... [--keep-refs <file|->]...
 //     [--apply --max-delete <n>]
 //
@@ -78,14 +78,13 @@ export function decide(versions: Version[], keep: Map<string, string>): Decision
   return versions.map((v) => ({ ...v, keep: keep.has(v.digest), reason: keep.get(v.digest) ?? "unreferenced" }));
 }
 
-type Args = { org: string; repo?: string; packages: string[]; rules: Rules; apply: boolean; maxDelete: number };
+type Args = { org: string; packages: string[]; rules: Rules; apply: boolean; maxDelete: number };
 
 export function parse(argv: string[], read: (f: string) => string, now = new Date()): Args {
   const { values: a } = parseArgs({
     args: argv,
     options: {
       org: { type: "string" },
-      repo: { type: "string" },
       package: { type: "string", multiple: true },
       "keep-newest": { type: "string" },
       "min-age-days": { type: "string" },
@@ -97,7 +96,7 @@ export function parse(argv: string[], read: (f: string) => string, now = new Dat
   });
   const missing = [
     !a.org && "--org",
-    !a.repo && !a.package?.length && "--repo or --package",
+    !a.package?.length && "--package",
     a["keep-newest"] === undefined && "--keep-newest",
     a["min-age-days"] === undefined && "--min-age-days",
     a.apply && a["max-delete"] === undefined && "--max-delete (with --apply)",
@@ -116,7 +115,6 @@ export function parse(argv: string[], read: (f: string) => string, now = new Dat
   }
   return {
     org: a.org as string,
-    repo: a.repo,
     packages: a.package ?? [],
     rules: {
       keepTags: (a["keep-tag"] ?? []).map((t) => new RegExp(t)),
@@ -158,16 +156,9 @@ export async function run(argv: string[], read: (f: string) => string) {
     }
   };
 
-  let packages = args.packages;
-  if (args.repo) {
-    const all = await paged<{ name: string; repository?: { full_name: string } }>(`/orgs/${args.org}/packages?package_type=container`);
-    packages = [...packages, ...all.filter((p) => p.repository?.full_name === args.repo).map((p) => p.name)];
-  }
-  if (!packages.length) throw new Error(`no container packages linked to ${args.repo}`);
-
   // Decide every package before deleting anything, so a failed manifest read deletes nothing.
   const plans: { pkg: string; decisions: Decision[] }[] = [];
-  for (const pkg of [...new Set(packages)].sort()) {
+  for (const pkg of [...new Set(args.packages)].sort()) {
     const enc = encodeURIComponent(pkg);
     type Raw = { id: number; name: string; updated_at: string; metadata: { container: { tags: string[] } } };
     const raw = await paged<Raw>(`/orgs/${args.org}/packages/container/${enc}/versions`);

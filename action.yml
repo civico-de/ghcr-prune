@@ -14,11 +14,8 @@ inputs:
     description: Files, one per line, whose `<package>@sha256:<digest>` references are kept. Each must name at least one.
     default: ""
   packages:
-    description: Package names, one per line. Empty means every container package linked to `repo`.
-    default: ""
-  repo:
-    description: Prune the packages linked to this repository (owner/name).
-    default: ${{ github.repository }}
+    description: Package names, one per line.
+    required: true
   org:
     description: Organisation that owns the packages.
     default: ${{ github.repository_owner }}
@@ -45,7 +42,6 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
         IN_ORG: ${{ inputs.org }}
-        IN_REPO: ${{ inputs.repo }}
         IN_PACKAGES: ${{ inputs.packages }}
         IN_KEEP_NEWEST: ${{ inputs.keep-newest }}
         IN_MIN_AGE: ${{ inputs.min-age-days }}
@@ -56,11 +52,7 @@ runs:
       run: |
         set -euo pipefail
         args=(--org "$IN_ORG" --keep-newest "$IN_KEEP_NEWEST" --min-age-days "$IN_MIN_AGE")
-        if [ -n "$IN_PACKAGES" ]; then
-          while IFS= read -r p; do [ -n "$p" ] && args+=(--package "$p"); done <<< "$IN_PACKAGES"
-        else
-          args+=(--repo "$IN_REPO")
-        fi
+        while IFS= read -r p; do [ -n "$p" ] && args+=(--package "$p"); done <<< "$IN_PACKAGES"
         while IFS= read -r t; do [ -n "$t" ] && args+=(--keep-tag "$t"); done <<< "$IN_KEEP_TAGS"
         while IFS= read -r f; do [ -n "$f" ] && args+=(--keep-refs "$f"); done <<< "$IN_KEEP_REFS"
         if [ "$IN_APPLY" = "true" ]; then args+=(--apply --max-delete "$IN_MAX_DELETE"); fi

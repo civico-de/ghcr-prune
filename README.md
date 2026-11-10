@@ -46,8 +46,11 @@ jobs:
     permissions:
       packages: write
     steps:
-      - uses: civico-de/ghcr-prune@v1
+      - uses: civico-de/ghcr-prune@v2
         with:
+          packages: |
+            my-app
+            my-app-cache
           keep-newest: 5
           min-age-days: 2
           keep-tags: |
@@ -57,9 +60,9 @@ jobs:
           max-delete: 500
 ```
 
-Without `packages`, the action prunes every container package linked to the calling
-repository. With `packages: write`, the workflow's `GITHUB_TOKEN` can delete versions of the
-packages that repository publishes. `apply` defaults to a dry run. `max-delete` caps one
+`packages` names the packages explicitly: the workflow token cannot list an
+organisation's packages (`400 Invalid argument`). With `packages: write`, it can read and
+delete versions of the packages the calling repository publishes. `apply` defaults to a dry run. `max-delete` caps one
 run; the rest waits for the next one, which keeps a large first cleanup within the API rate
 limit.
 
@@ -69,12 +72,12 @@ artifact `ghcr-prune-<attempt>` (`artifact-name` changes the prefix, e.g. per ma
 ## CLI
 
 ```sh
-node ghcr-prune.ts --org <org> --repo <owner/name> --keep-newest 5 --min-age-days 2 \
+node ghcr-prune.ts --org <org> --package <name> --keep-newest 5 --min-age-days 2 \
   --keep-tag '^v\d' --keep-refs pins.txt            # dry run
 node ghcr-prune.ts ... --apply --max-delete 500     # delete
 ```
 
-`--package <name>` (repeatable) selects packages by name instead of `--repo`. The token is
+`--package` is repeatable. The token is
 `$GITHUB_TOKEN`, otherwise `gh auth token`; deleting needs the `delete:packages` scope and
 admin rights on the package. Needs Node ≥ 22.18 (runs TypeScript directly).
 

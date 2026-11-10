@@ -72,11 +72,11 @@ describe("childDigests", () => {
 });
 
 describe("parse", () => {
-  const base = ["--org", "o", "--repo", "o/r", "--keep-newest", "3", "--min-age-days", "2"];
+  const base = ["--org", "o", "--package", "app", "--keep-newest", "3", "--min-age-days", "2"];
   const read = (f: string) => (f === "pins" ? `app@${dg("a")}` : "no digests here");
   test("a dry run needs no --max-delete", () => assert.equal(parse(base, read, now).maxDelete, Number.POSITIVE_INFINITY));
   test("lists every missing mandatory flag", () =>
-    assert.throws(() => parse(["--apply"], read), /missing --org, --repo or --package, --keep-newest, --min-age-days, --max-delete/));
+    assert.throws(() => parse(["--apply"], read), /missing --org, --package, --keep-newest, --min-age-days, --max-delete/));
   test("rejects an empty min-age instead of reading it as 0", () =>
     assert.throws(() => parse([...base.slice(0, 7), ""], read), /--min-age-days must be/));
   test("rejects keep-newest 0", () => assert.throws(() => parse([...base.slice(0, 5), "0", ...base.slice(6)], read), /--keep-newest must be/));
@@ -100,7 +100,6 @@ describe("run against a mocked GitHub", () => {
       const u = String(input);
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
       if (init?.method === "DELETE") { deletes.push(u.split("/").pop() as string); return new Response(null, { status: 204 }); }
-      if (u.includes("/orgs/o/packages?")) return json([{ name: "app", repository: { full_name: "o/r" } }, { name: "other", repository: { full_name: "o/x" } }]);
       if (u.includes("/packages/container/app/versions")) return json(raw);
       if (u.startsWith("https://ghcr.io/token")) return json({ token: "t" });
       if (u.includes("/manifests/")) {
@@ -119,7 +118,7 @@ describe("run against a mocked GitHub", () => {
     try { await f(); } finally { [console.log, console.error] = [log, err]; }
     return out.map((l) => JSON.parse(l));
   };
-  const args = ["--org", "o", "--repo", "o/r", "--keep-newest", "1", "--min-age-days", "0"];
+  const args = ["--org", "o", "--package", "app", "--keep-newest", "1", "--min-age-days", "0"];
   process.env.GITHUB_TOKEN = "x";
 
   test("a dry run deletes nothing and reports what it would delete", async () => {
@@ -128,7 +127,7 @@ describe("run against a mocked GitHub", () => {
     assert.deepEqual(deletes, []);
     assert.deepEqual(out.filter((d) => d.action === "would-delete").map((d) => d.id), [4, 5]);
   });
-  test("apply deletes only unkept versions of the repo's packages, capped by max-delete", async () => {
+  test("apply deletes only unkept versions, capped by max-delete", async () => {
     const deletes = mock();
     const out = await quiet(() => run([...args, "--apply", "--max-delete", "1"], () => ""));
     assert.deepEqual(deletes, ["4"]);
